@@ -28,43 +28,6 @@ A collection of three interactive web games built with Django:
 - **Admin Panel**: Manage scores and players through Django admin
 - **Session Management**: Maintains game state across requests
 
-## Installation
-
-1. Clone the repository
-2. Create a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\\Scripts\\activate
-   ```
-
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Run migrations:
-   ```bash
-   python manage.py makemigrations
-   python manage.py migrate
-   ```
-
-5. Create a superuser (optional):
-   ```bash
-   python manage.py createsuperuser
-   ```
-
-6. Start the development server:
-   ```bash
-   python manage.py runserver
-   ```
-
-7. Visit http://127.0.0.1:8000/ to start playing!
-
-## Management Commands
-
-- Reset all scores: `python manage.py reset_scores`
-- Reset specific game scores: `python manage.py reset_scores --game-type number_guess`
-- Generate test data: `python manage.py generate_test_data --count 100`
 
 ## File Structure
 
