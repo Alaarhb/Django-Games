@@ -1,0 +1,46 @@
+{% extends 'games/base.html' %}
+
+{% block title %}Home - Django Games{% endblock %}
+
+{% block content %}
+<div style="text-align: center;">
+    <h2>Welcome to Django Games! 🎯</h2>
+    <p style="margin: 20px 0; font-size: 18px; color: #666;">
+        Choose your favorite game and start playing!
+    </p>
+    
+    <div class="game-grid">
+        <div class="game-card" style="background: linear-gradient(45deg, #ff9a9e 0%, #fad0c4 100%);">
+            <h3>🔢 Number Guessing</h3>
+            <p>Try to guess the secret number between 1-100!</p>
+            <a href="{% url 'number_guess' %}" class="btn" style="margin-top: 15px;">Play Now</a>
+        </div>
+        
+        <div class="game-card" style="background: linear-gradient(45deg, #a8edea 0%, #fed6e3 100%);">
+            <h3>❌ Tic Tac Toe</h3>
+            <p>Classic 3x3 grid game against the computer!</p>
+            <a href="{% url 'tic_tac_toe' %}" class="btn" style="margin-top: 15px;">Play Now</a>
+        </div>
+        
+        <div class="game-card" style="background: linear-gradient(45deg, #ffecd2 0%, #fcb69f 100%);">
+            <h3>✂️ Rock Paper Scissors</h3>
+            <p>Test your luck against the computer!</p>
+            <a href="{% url 'rock_paper_scissors' %}" class="btn" style="margin-top: 15px;">Play Now</a>
+        </div>
+    </div>
+    
+    {% if recent_scores %}
+    <div style="margin-top: 40px; text-align: left;">
+        <h3>🏆 Recent High Scores</h3>
+        <div class="stats-container">
+            {% for score in recent_scores %}
+            <div class="score-item">
+                <span><strong>{{ score.player_name }}</strong> - {{ score.get_game_type_display }}</span>
+                <span class="score-badge">{{ score.score }} pts</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

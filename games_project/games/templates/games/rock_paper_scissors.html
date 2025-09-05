@@ -1,0 +1,132 @@
+{% extends 'games/base.html' %}
+
+{% block title %}Rock Paper Scissors - Django Games{% endblock %}
+
+{% block content %}
+<div style="text-align: center;">
+    <h2>✂️ Rock Paper Scissors</h2>
+    <p style="margin: 20px 0; font-size: 18px; color: #666;">
+        Choose your weapon and battle the computer!
+    </p>
+    
+    {% if result %}
+    <div style="background: #f8f9fa; padding: 30px; border-radius: 15px; margin: 20px 0;">
+        <h3>Last Round Results:</h3>
+        <div style="display: flex; justify-content: space-around; align-items: center; margin: 20px 0; flex-wrap: wrap; gap: 20px;">
+            <div style="text-align: center;">
+                <h4>You</h4>
+                <div style="font-size: 60px; margin: 10px 0;">
+                    {% if player_choice == 'rock' %}🪨
+                    {% elif player_choice == 'paper' %}📄
+                    {% elif player_choice == 'scissors' %}✂️
+                    {% endif %}
+                </div>
+                <p>{{ player_choice|title }}</p>
+            </div>
+            
+            <div style="font-size: 40px; margin: 0 20px;">VS</div>
+            
+            <div style="text-align: center;">
+                <h4>Computer</h4>
+                <div style="font-size: 60px; margin: 10px 0;">
+                    {% if computer_choice == 'rock' %}🪨
+                    {% elif computer_choice == 'paper' %}📄
+                    {% elif computer_choice == 'scissors' %}✂️
+                    {% endif %}
+                </div>
+                <p>{{ computer_choice|title }}</p>
+            </div>
+        </div>
+        
+        <div style="font-size: 24px; font-weight: bold; margin: 20px 0;">
+            {% if result == 'win' %}
+                <span style="color: green;">🎉 You Win!</span>
+            {% elif result == 'lose' %}
+                <span style="color: red;">💔 You Lose!</span>
+            {% else %}
+                <span style="color: orange;">🤝 It's a Tie!</span>
+            {% endif %}
+        </div>
+        
+        <div style="background: white; padding: 15px; border-radius: 10px; margin-top: 20px;">
+            <strong>Stats:</strong> 
+            {{ wins }}/{{ games_played }} wins ({{ win_rate }}% win rate)
+        </div>
+    </div>
+    {% endif %}
+    
+    <form method="post" style="margin: 30px 0;">
+        {% csrf_token %}
+        
+        {% if not result %}
+        <div class="form-group" style="max-width: 300px; margin: 0 auto;">
+            <label for="player_name">Your Name:</label>
+            <input type="text" id="player_name" name="player_name" placeholder="Enter your name" required>
+        </div>
+        {% else %}
+        <input type="hidden" name="player_name" value="Anonymous">
+        {% endif %}
+        
+        <div style="display: flex; justify-content: center; gap: 20px; margin: 30px 0; flex-wrap: wrap;">
+            <button type="submit" name="choice" value="rock" class="choice-btn">
+                🪨<br>Rock
+            </button>
+            
+            <button type="submit" name="choice" value="paper" class="choice-btn">
+                📄<br>Paper
+            </button>
+            
+            <button type="submit" name="choice" value="scissors" class="choice-btn">
+                ✂️<br>Scissors
+            </button>
+        </div>
+    </form>
+    
+    {% if games_played %}
+    <div style="margin-top: 20px;">
+        <a href="{% url 'reset_rps_stats' %}" class="btn" style="background: #6c757d;">🔄 Reset Stats</a>
+    </div>
+    {% endif %}
+    
+    <div style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 10px;">
+        <h4>🎮 Game Rules:</h4>
+        <div style="text-align: left; display: inline-block;">
+            <p><strong>🪨 Rock</strong> crushes ✂️ Scissors</p>
+            <p><strong>📄 Paper</strong> covers 🪨 Rock</p>
+            <p><strong>✂️ Scissors</strong> cuts 📄 Paper</p>
+            <p style="margin-top: 10px;"><em>Each win gives you 10 points!</em></p>
+        </div>
+    </div>
+</div>
+
+<style>
+.choice-btn {
+    background: linear-gradient(45deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    padding: 20px;
+    border-radius: 15px;
+    cursor: pointer;
+    font-size: 18px;
+    transition: all 0.3s ease;
+    min-width: 120px;
+}
+
+.choice-btn:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+}
+
+.choice-btn:active {
+    transform: translateY(0);
+}
+
+@media (max-width: 480px) {
+    .choice-btn {
+        min-width: 100px;
+        padding: 15px;
+        font-size: 16px;
+    }
+}
+</style>
+{% endblock %}
