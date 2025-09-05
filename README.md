@@ -1,4 +1,3 @@
-readme_content = """
 # Django Games Project
 
 A collection of three interactive web games built with Django:
