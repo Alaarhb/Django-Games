@@ -1,5 +1,5 @@
 from django.urls import path
-from ..games import views
+from . import views
 
 urlpatterns = [
     path('', views.home, name='home'),
@@ -9,3 +9,8 @@ urlpatterns = [
     path('rock-paper-scissors/', views.rock_paper_scissors, name='rock_paper_scissors'),
     path('reset-rps/', views.reset_rps_stats, name='reset_rps_stats'),
 ]
+
+print("🎮 Django Lab2 Games Project Structure Created!")
+print("📚 Features DTL Variables, Filters, and Tags")
+print("🎨 Uses External CSS Files for Styling")
+print("📊 Enhanced with Statistics and Player Management")
