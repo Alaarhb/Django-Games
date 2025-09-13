@@ -21,131 +21,227 @@ from .models import (
 from .database_operations import DatabaseOperations
 
 
-def home(request):
-    """Enhanced home view with comprehensive database queries"""
+def home_with_advanced_queries(request):
+    """Enhanced home view using custom QuerySet methods"""
     
-    # Cache key for expensive queries
-    cache_key = 'home_dashboard_data'
-    dashboard_data = cache.get(cache_key)
-    
-    if not dashboard_data:
-        # Complex database queries with optimizations
-        dashboard_data = {
-            # Featured games with statistics
-            'featured_games': Game.objects.filter(
-                is_featured=True, 
-                is_active=True
-            ).select_related('category').annotate(
-                total_plays=Count('scores'),
-                average_rating=Avg('scores__score') / F('max_score') * 100,
-                unique_players=Count('scores__player', distinct=True)
-            ).order_by('-total_plays'),
-            
-            # Top players with recent activity
-            'top_players': Player.objects.filter(
-                is_active=True
-            ).select_related('favorite_category').annotate(
-                recent_games=Count(
-                    'scores',
-                    filter=Q(scores__created_at__gte=timezone.now() - timedelta(days=7))
-                )
-            ).order_by('-total_score')[:10],
-            
-            # Recent high scores with player and game info
-            'recent_scores': GameScore.objects.select_related(
-                'player', 'game', 'game__category'
-            ).filter(
-                created_at__gte=timezone.now() - timedelta(days=7)
-            ).order_by('-score')[:15],
-            
-            # Game categories with statistics
-            'categories': Category.objects.filter(
-                is_active=True
-            ).annotate(
-                game_count=Count('games', filter=Q(games__is_active=True)),
-                total_plays=Count('games__scores'),
-                avg_score=Avg('games__scores__score')
-            ).filter(game_count__gt=0),
-            
-            # Site statistics
-            'stats': {
-                'total_players': Player.objects.filter(is_active=True).count(),
-                'total_games': Game.objects.filter(is_active=True).count(),
-                'games_played_today': GameScore.objects.filter(
-                    created_at__date=timezone.now().date()
-                ).count(),
-                'active_players_week': Player.objects.filter(
-                    last_played__gte=timezone.now() - timedelta(days=7)
-                ).count(),
-            }
-        }
-        
-        # Cache for 5 minutes
-        cache.set(cache_key, dashboard_data, 300)
-    
+    # Using custom QuerySet methods
     context = {
-        **dashboard_data,
-        'current_time': timezone.now(),
-        'trending_games': DatabaseOperations.get_trending_games(),
+        # Featured games with comprehensive statistics
+        'featured_games': Game.objects.featured().with_statistics().select_related('category')[:6],
+        
+        # Top players using custom method
+        'top_players': Player.objects.top_players(10).with_statistics(),
+        
+        # Trending games using custom method
+        'trending_games': Game.objects.trending(days=7)[:5],
+        
+        # Recent high scores with performance rating
+        'recent_scores': GameScore.objects.recent(days=7).with_performance_rating()
+                         .select_related('player', 'game')[:15],
+        
+        # Categories with game counts
+        'categories': Category.objects.active().prefetch_related('games')
+                     .annotate(game_count=models.Count('games')),
+        
+        # Advanced statistics using QuerySet methods
+        'stats': {
+            'total_active_players': Player.objects.active().count(),
+            'games_today': GameScore.objects.created_today().count(),
+            'perfect_scores_week': GameScore.objects.created_this_week().perfect_scores().count(),
+            'new_players_week': Player.objects.created_this_week().count(),
+        },
+        
+        # Leaderboard preview using custom method
+        'weekly_leaderboard': GameScore.objects.leaderboard(period='week', limit=5),
     }
     
-    return render(request, 'games/home.html', context)
+    return render(request, 'games/home_advanced.html', context)
 
-def player_profile(request, pk):
-    """Detailed player profile with advanced statistics"""
+def player_dashboard(request, pk):
+    """Advanced player dashboard using custom QuerySet methods"""
     player = get_object_or_404(Player, pk=pk, is_active=True)
     
-    # Get comprehensive player statistics
-    stats = DatabaseOperations.get_player_statistics(pk)
-    
-    # Recent games with performance trends
-    recent_scores = GameScore.objects.filter(
-        player=player
-    ).select_related('game').order_by('-created_at')[:20]
-    
-    # Game-wise statistics
-    game_stats = GameScore.objects.filter(
-        player=player
-    ).values(
-        'game__display_name',
-        'game__icon'
-    ).annotate(
-        games_played=Count('id'),
-        best_score=Max('score'),
-        avg_score=Avg('score'),
-        total_score=Sum('score'),
-        last_played=Max('created_at')
-    ).order_by('-games_played')
-    
-    # Player achievements
-    achievements = PlayerAchievement.objects.filter(
-        player=player
-    ).select_related('achievement').order_by('-completed_at', '-progress')
-    
-    # Performance trends (last 30 days)
-    thirty_days_ago = timezone.now() - timedelta(days=30)
-    daily_performance = GameScore.objects.filter(
-        player=player,
-        created_at__gte=thirty_days_ago
-    ).extra(
-        select={'day': 'date(created_at)'}
-    ).values('day').annotate(
-        games_played=Count('id'),
-        avg_score=Avg('score'),
-        total_score=Sum('score')
-    ).order_by('day')
-    
+    # Using custom QuerySet methods for comprehensive data
     context = {
         'player': player,
-        'stats': stats,
-        'recent_scores': recent_scores,
-        'game_stats': game_stats,
-        'achievements': achievements,
-        'daily_performance': list(daily_performance),
-        'rank_info': {
-            'current_rank': player.rank,
-            'total_players': Player.objects.filter(is_active=True).count(),
-        }
+        
+        # Player's recent activity
+        'recent_scores': player.scores.recent(days=30).with_performance_rating()
+                        .select_related('game')[:20],
+        
+        # Personal bests across all games
+        'personal_bests': player.scores.personal_bests().select_related('game'),
+        
+        # High scores (above 80%)
+        'high_scores': player.scores.high_scores(80).select_related('game')[:10],
+        
+        # Quick games completed
+        'quick_completions': player.scores.quick_games(5).select_related('game')[:5],
+        
+        # Game statistics
+        'game_performance': player.scores.values('game__display_name', 'game__icon')
+                           .annotate(
+                               games_played=models.Count('id'),
+                               best_score=models.Max('score'),
+                               avg_score=models.Avg('score'),
+                               last_played=models.Max('created_at')
+                           ).order_by('-games_played'),
+        
+        # Achievements
+        'completed_achievements': player.achievements.filter(is_completed=True)
+                                 .select_related('achievement'),
+        'progress_achievements': player.achievements.filter(is_completed=False)
+                                .select_related('achievement'),
+        
+        # Performance trends
+        'performance_stats': player.scores.statistics_for_period(),
     }
     
-    return render(request, 'games/player_profile.html', context)
+    return render(request, 'games/player_dashboard.html', context)
+
+class GameListView(ListView):
+    """Advanced game list view using custom QuerySets"""
+    model = Game
+    template_name = 'games/game_list.html'
+    context_object_name = 'games'
+    paginate_by = 12
+    
+    def get_queryset(self):
+        """Build queryset using custom methods"""
+        queryset = Game.objects.active().with_statistics().select_related('category')
+        
+        # Filter parameters
+        category = self.request.GET.get('category')
+        difficulty = self.request.GET.get('difficulty')
+        search = self.request.GET.get('search')
+        sort = self.request.GET.get('sort', 'popular')
+        
+        # Apply filters using custom QuerySet methods
+        if category:
+            queryset = queryset.by_category(category)
+        
+        if difficulty:
+            if difficulty == 'easy':
+                queryset = queryset.easy_games()
+            elif difficulty == 'medium':
+                queryset = queryset.medium_games()
+            elif difficulty == 'hard':
+                queryset = queryset.hard_games()
+        
+        if search:
+            queryset = queryset.search(search)
+        
+        # Apply sorting
+        if sort == 'popular':
+            queryset = queryset.order_by('-total_plays', '-avg_score')
+        elif sort == 'rating':
+            queryset = queryset.highly_rated().order_by('-avg_score')
+        elif sort == 'new':
+            queryset = queryset.order_by('-release_date')
+        elif sort == 'trending':
+            queryset = queryset.trending()
+        
+        return queryset
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        # Add filter context
+        context.update({
+            'categories': Category.objects.active(),
+            'current_category': self.request.GET.get('category'),
+            'current_difficulty': self.request.GET.get('difficulty'),
+            'current_search': self.request.GET.get('search', ''),
+            'current_sort': self.request.GET.get('sort', 'popular'),
+            
+            # Additional stats using QuerySet methods
+            'featured_games': Game.objects.featured()[:3],
+            'new_releases': Game.objects.new_releases()[:3],
+        })
+        
+        return context
+
+class LeaderboardView(ListView):
+    """Advanced leaderboard using custom QuerySet methods"""
+    model = GameScore
+    template_name = 'games/leaderboard_advanced.html'
+    context_object_name = 'scores'
+    paginate_by = 25
+    
+    def get_queryset(self):
+        """Build leaderboard using custom QuerySet methods"""
+        game_id = self.request.GET.get('game')
+        period = self.request.GET.get('period', 'all_time')
+        
+        game = None
+        if game_id:
+            try:
+                game = Game.objects.get(id=game_id)
+            except Game.DoesNotExist:
+                pass
+        
+        # Use custom QuerySet method for leaderboard
+        queryset = GameScore.objects.leaderboard(game=game, period=period, limit=1000)
+        
+        return queryset.with_performance_rating()
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        game_id = self.request.GET.get('game')
+        period = self.request.GET.get('period', 'all_time')
+        
+        context.update({
+            'games': Game.objects.active().order_by('display_name'),
+            'current_game': game_id,
+            'current_period': period,
+            
+            # Statistics using QuerySet methods
+            'period_stats': GameScore.objects.statistics_for_period(),
+            'perfect_scores': GameScore.objects.perfect_scores().count(),
+            'total_players': Player.objects.with_scores().count(),
+        })
+        
+        return context
+
+def analytics_dashboard_advanced(request):
+    """Advanced analytics using custom QuerySet methods"""
+    if not request.user.is_staff:
+        raise Http404("Access denied")
+    
+    days = int(request.GET.get('days', 30))
+    
+    context = {
+        # Player analytics using custom methods
+        'player_stats': {
+            'total_players': Player.objects.active().count(),
+            'new_players': Player.objects.recent(days).count(),
+            'active_players': Player.objects.active_recently(days).count(),
+            'inactive_players': Player.objects.inactive_players(days).count(),
+            'expert_players': Player.objects.experts().count(),
+            'beginners': Player.objects.beginners().count(),
+        },
+        
+        # Game analytics using custom methods
+        'game_stats': {
+            'total_games': Game.objects.active().count(),
+            'featured_games': Game.objects.featured().count(),
+            'popular_games': Game.objects.popular().count(),
+            'new_releases': Game.objects.new_releases().count(),
+        },
+        
+        # Score analytics using custom methods
+        'score_stats': GameScore.objects.recent(days).statistics_for_period(),
+        
+        # Top performing content
+        'top_games': Game.objects.with_statistics().order_by('-total_plays')[:10],
+        'top_players': Player.objects.with_statistics().order_by('-total_score')[:10],
+        'recent_perfect_scores': GameScore.objects.recent(days).perfect_scores()
+                                .select_related('player', 'game')[:10],
+        
+        # Trending analysis
+        'trending_games': Game.objects.trending(days),
+        'period_days': days,
+    }
+    
+    return render(request, 'games/analytics_advanced.html', context)
