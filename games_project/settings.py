@@ -7,6 +7,34 @@ SECRET_KEY = 'django-insecure-your-secret-key-here'
 DEBUG = True
 ALLOWED_HOSTS = []
 
+# Media files configuration
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# Static files configuration
+STATIC_URL = '/static/'
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# File upload settings
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB
+
+# Image processing settings
+THUMBNAIL_SIZES = {
+    'small': (100, 100),
+    'medium': (300, 300),
+    'large': (600, 600),
+}
+
+# Static files configuration
+STATIC_URL = '/static/'
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -52,11 +80,6 @@ DATABASES = {
     }
 }
 
-# Static files configuration
-STATIC_URL = '/static/'
-STATICFILES_DIRS = [
-    BASE_DIR / 'static',
-]
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
