@@ -1,422 +1,356 @@
 from django.db import models
-from django.contrib.auth.models import User
 from django.utils import timezone
-from django.core.validators import MinValueValidator, MaxValueValidator, RegexValidator
-from django.db.models import Q, Avg, Count, Sum, Max, Min
-from django.urls import reverse
-import uuid
-from datetime import timedelta
+from django.db.models import Q, Count, Avg, Sum, Max, Min, F, Case, When, Value
+from datetime import timedelta, datetime
+import operator
+from functools import reduce
 
-class TimestampedModel(models.Model):
-    """Abstract base model with created and updated timestamps"""
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+class TimestampedQuerySet(models.QuerySet):
+    """Base QuerySet with timestamp filtering methods"""
     
-    class Meta:
-        abstract = True
+    def created_today(self):
+        """Filter records created today"""
+        return self.filter(created_at__date=timezone.now().date())
+    
+    def created_this_week(self):
+        """Filter records created this week"""
+        start_week = timezone.now() - timedelta(days=7)
+        return self.filter(created_at__gte=start_week)
+    
+    def created_this_month(self):
+        """Filter records created this month"""
+        start_month = timezone.now() - timedelta(days=30)
+        return self.filter(created_at__gte=start_month)
+    
+    def created_between(self, start_date, end_date):
+        """Filter records created between two dates"""
+        return self.filter(created_at__range=[start_date, end_date])
+    
+    def recent(self, days=7):
+        """Filter recent records"""
+        cutoff_date = timezone.now() - timedelta(days=days)
+        return self.filter(created_at__gte=cutoff_date)
+    
+    def older_than(self, days):
+        """Filter records older than specified days"""
+        cutoff_date = timezone.now() - timedelta(days=days)
+        return self.filter(created_at__lt=cutoff_date)
 
-class Category(TimestampedModel):
-    """Game categories for organization"""
-    name = models.CharField(max_length=100, unique=True)
-    description = models.TextField(blank=True)
-    icon = models.CharField(max_length=10, default='🎮')
-    color = models.CharField(
-        max_length=7,
-        default='#667eea',
-        validators=[RegexValidator(r'^#[0-9A-Fa-f]{6}$', 'Enter valid hex color')]
-    )
-    is_active = models.BooleanField(default=True)
+class ActiveQuerySet(TimestampedQuerySet):
+    """QuerySet for models with is_active field"""
     
-    def __str__(self):
-        return self.name
+    def active(self):
+        """Filter active records only"""
+        return self.filter(is_active=True)
     
-    class Meta:
-        verbose_name_plural = "Categories"
-        ordering = ['name']
+    def inactive(self):
+        """Filter inactive records only"""
+        return self.filter(is_active=False)
+    
+    def toggle_active(self):
+        """Toggle active status for all records in queryset"""
+        return self.update(is_active=models.F('is_active').bitxor(True))
 
-class Player(TimestampedModel):
-    """Enhanced Player model with detailed statistics"""
-    # Basic Information
-    user = models.OneToOneField(User, on_delete=models.CASCADE, null=True, blank=True)
-    name = models.CharField(max_length=100, unique=True)
-    email = models.EmailField(blank=True, null=True)
-    avatar = models.CharField(max_length=10, default='🎮')
+class PlayerQuerySet(ActiveQuerySet):
+    """Custom QuerySet for Player model with advanced filtering methods"""
     
-    # Statistics
-    total_games = models.IntegerField(default=0)
-    total_score = models.IntegerField(default=0)
-    highest_score = models.IntegerField(default=0)
-    total_playtime = models.DurationField(default=timedelta(0))
+    def with_scores(self):
+        """Players with at least one score"""
+        return self.filter(scores__isnull=False).distinct()
     
-    # Preferences
-    preferred_difficulty = models.IntegerField(
-        default=3,
-        validators=[MinValueValidator(1), MaxValueValidator(5)]
-    )
-    favorite_category = models.ForeignKey(
-        Category, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True
-    )
+    def without_scores(self):
+        """Players without any scores"""
+        return self.filter(scores__isnull=True)
     
-    # Status
-    is_active = models.BooleanField(default=True)
-    last_played = models.DateTimeField(null=True, blank=True)
+    def top_players(self, limit=10):
+        """Get top players by total score"""
+        return self.active().order_by('-total_score')[:limit]
     
-    def __str__(self):
-        return self.name
+    def by_level_range(self, min_level=1, max_level=100):
+        """Filter players by level range"""
+        min_score = (min_level - 1) * 500
+        max_score = max_level * 500
+        return self.filter(
+            total_score__gte=min_score,
+            total_score__lt=max_score
+        )
     
-    @property
-    def average_score(self):
-        """Calculate average score per game"""
-        return round(self.total_score / self.total_games, 2) if self.total_games > 0 else 0
+    def beginners(self):
+        """Players at beginner level (1-5)"""
+        return self.by_level_range(1, 5)
     
-    @property
-    def rank(self):
-        """Get player ranking based on total score"""
-        return Player.objects.filter(total_score__gt=self.total_score).count() + 1
+    def intermediate(self):
+        """Players at intermediate level (6-15)"""
+        return self.by_level_range(6, 15)
     
-    @property
-    def level(self):
-        """Calculate player level based on total score"""
-        return min(self.total_score // 500 + 1, 100)
+    def advanced(self):
+        """Players at advanced level (16-50)"""
+        return self.by_level_range(16, 50)
     
-    @property
-    def experience_to_next_level(self):
-        """Calculate experience needed for next level"""
-        current_level_exp = (self.level - 1) * 500
-        next_level_exp = self.level * 500
-        return next_level_exp - self.total_score
+    def experts(self):
+        """Players at expert level (50+)"""
+        return self.filter(total_score__gte=25000)  # Level 50+
     
-    def get_absolute_url(self):
-        return reverse('player_profile', kwargs={'pk': self.pk})
+    def active_recently(self, days=7):
+        """Players who played recently"""
+        cutoff_date = timezone.now() - timedelta(days=days)
+        return self.filter(last_played__gte=cutoff_date)
     
-    class Meta:
-        ordering = ['-total_score', 'name']
-
-class Game(TimestampedModel):
-    """Enhanced Game model with advanced features"""
-    # Basic Information
-    name = models.CharField(max_length=50, unique=True)
-    display_name = models.CharField(max_length=100)
-    description = models.TextField()
-    instructions = models.TextField(blank=True)
+    def inactive_players(self, days=30):
+        """Players who haven't played for specified days"""
+        cutoff_date = timezone.now() - timedelta(days=days)
+        return self.filter(
+            models.Q(last_played__lt=cutoff_date) | 
+            models.Q(last_played__isnull=True)
+        )
     
-    # Categorization
-    category = models.ForeignKey(
-        Category, 
-        on_delete=models.CASCADE, 
-        related_name='games'
-    )
+    def with_achievements(self):
+        """Players who have earned achievements"""
+        return self.filter(
+            achievements__is_completed=True
+        ).distinct()
     
-    # Visual Elements
-    icon = models.CharField(max_length=10, default='🎮')
-    background_color = models.CharField(max_length=7, default='#667eea')
-    
-    # Game Settings
-    max_score = models.IntegerField(default=100)
-    min_score = models.IntegerField(default=0)
-    difficulty_level = models.IntegerField(
-        validators=[MinValueValidator(1), MaxValueValidator(5)], 
-        default=3
-    )
-    estimated_duration = models.DurationField(default=timedelta(minutes=5))
-    
-    # Statistics
-    play_count = models.IntegerField(default=0)
-    average_score = models.FloatField(default=0.0)
-    average_duration = models.DurationField(default=timedelta(minutes=5))
-    
-    # Status
-    is_active = models.BooleanField(default=True)
-    is_featured = models.BooleanField(default=False)
-    release_date = models.DateField(default=timezone.now)
-    
-    def __str__(self):
-        return self.display_name
-    
-    def get_absolute_url(self):
-        return reverse(self.name)
-    
-    @property
-    def popularity_score(self):
-        """Calculate game popularity based on play count and average score"""
-        return (self.play_count * 0.7) + (self.average_score * 0.3)
-    
-    def update_statistics(self):
-        """Update game statistics from related scores"""
-        scores = self.scores.all()
-        if scores.exists():
-            self.play_count = scores.count()
-            self.average_score = scores.aggregate(Avg('score'))['score__avg'] or 0
-            # Update average duration if available
-            durations = scores.exclude(duration__isnull=True)
-            if durations.exists():
-                avg_duration = durations.aggregate(Avg('duration'))['duration__avg']
-                self.average_duration = avg_duration
-            self.save()
-    
-    class Meta:
-        ordering = ['-is_featured', '-popularity_score', 'name']
-
-class Achievement(TimestampedModel):
-    """Player achievements system"""
-    ACHIEVEMENT_TYPES = [
-        ('score', 'High Score'),
-        ('streak', 'Win Streak'),
-        ('games', 'Games Played'),
-        ('time', 'Time Based'),
-        ('special', 'Special'),
-    ]
-    
-    name = models.CharField(max_length=100)
-    description = models.TextField()
-    icon = models.CharField(max_length=10, default='🏆')
-    type = models.CharField(max_length=20, choices=ACHIEVEMENT_TYPES)
-    
-    # Requirements
-    game = models.ForeignKey(Game, on_delete=models.CASCADE, null=True, blank=True)
-    required_value = models.IntegerField(default=1)
-    
-    # Rewards
-    points_reward = models.IntegerField(default=50)
-    
-    # Status
-    is_active = models.BooleanField(default=True)
-    
-    def __str__(self):
-        return self.name
-    
-    class Meta:
-        ordering = ['type', 'required_value']
-
-class GameScore(TimestampedModel):
-    """Enhanced GameScore model with detailed tracking"""
-    # Basic Information
-    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name='scores')
-    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='scores')
-    
-    # Score Details
-    score = models.IntegerField()
-    max_possible_score = models.IntegerField(default=100)
-    attempts = models.IntegerField(default=1)
-    
-    # Time Tracking
-    duration = models.DurationField(null=True, blank=True)
-    started_at = models.DateTimeField(null=True, blank=True)
-    ended_at = models.DateTimeField(null=True, blank=True)
-    
-    # Game Session Data
-    session_id = models.UUIDField(default=uuid.uuid4, editable=False)
-    game_data = models.JSONField(default=dict, blank=True)  # Store game-specific data
-    
-    # Difficulty and Settings
-    difficulty_played = models.IntegerField(default=3)
-    settings = models.JSONField(default=dict, blank=True)
-    
-    # Performance Metrics
-    accuracy = models.FloatField(null=True, blank=True)  # For applicable games
-    reaction_time = models.FloatField(null=True, blank=True)  # Average reaction time
-    
-    # Status
-    is_completed = models.BooleanField(default=True)
-    is_personal_best = models.BooleanField(default=False)
-    
-    def __str__(self):
-        return f"{self.player.name} - {self.game.display_name}: {self.score}"
-    
-    @property
-    def score_percentage(self):
-        """Calculate score as percentage of maximum"""
-        return (self.score / self.max_possible_score) * 100 if self.max_possible_score > 0 else 0
-    
-    @property
-    def performance_rating(self):
-        """Get performance rating based on percentage"""
-        percentage = self.score_percentage
-        if percentage >= 90:
-            return 'Excellent'
-        elif percentage >= 75:
-            return 'Good'
-        elif percentage >= 60:
-            return 'Average'
-        elif percentage >= 40:
-            return 'Below Average'
-        else:
-            return 'Poor'
-    
-    def save(self, *args, **kwargs):
-        # Check if this is a personal best
-        existing_best = GameScore.objects.filter(
-            player=self.player,
-            game=self.game,
-            score__gt=self.score
-        ).exists()
+    def search(self, query):
+        """Search players by name or email"""
+        if not query:
+            return self.none()
         
-        if not existing_best:
-            # Mark previous personal bests as False
-            GameScore.objects.filter(
-                player=self.player,
-                game=self.game,
-                is_personal_best=True
-            ).update(is_personal_best=False)
-            
-            self.is_personal_best = True
-        
-        super().save(*args, **kwargs)
-        
-        # Update player statistics
-        self.update_player_stats()
-        
-        # Update game statistics
-        self.game.update_statistics()
+        return self.filter(
+            models.Q(name__icontains=query) |
+            models.Q(email__icontains=query)
+        ).distinct()
     
-    def update_player_stats(self):
-        """Update related player statistics"""
-        player = self.player
-        player.total_games = player.scores.count()
-        player.total_score = player.scores.aggregate(Sum('score'))['score__sum'] or 0
-        player.highest_score = player.scores.aggregate(Max('score'))['score__max'] or 0
-        player.last_played = timezone.now()
-        
-        # Update total playtime
-        durations = player.scores.exclude(duration__isnull=True)
-        if durations.exists():
-            total_duration = durations.aggregate(Sum('duration'))['duration__sum']
-            player.total_playtime = total_duration or timedelta(0)
-        
-        player.save()
+    def with_statistics(self):
+        """Annotate players with comprehensive statistics"""
+        return self.annotate(
+            games_played=Count('scores'),
+            games_won=Count('scores', filter=Q(scores__score__gte=F('scores__game__max_score') * 0.8)),
+            average_score=Avg('scores__score'),
+            best_game_score=Max('scores__score'),
+            worst_game_score=Min('scores__score'),
+            total_playtime=Sum('scores__duration'),
+            favorite_game=models.Subquery(
+                # Subquery to find most played game
+                self.model.objects.filter(
+                    pk=models.OuterRef('pk')
+                ).values('scores__game__display_name').annotate(
+                    game_count=Count('scores__game')
+                ).order_by('-game_count').values('scores__game__display_name')[:1]
+            ),
+            recent_activity=Count(
+                'scores',
+                filter=Q(scores__created_at__gte=timezone.now() - timedelta(days=7))
+            ),
+            win_rate=Case(
+                When(games_played__gt=0, 
+                     then=Cast(F('games_won'), models.FloatField()) / Cast(F('games_played'), models.FloatField()) * 100),
+                default=Value(0),
+                output_field=models.FloatField()
+            )
+        )
     
-    class Meta:
-        ordering = ['-score', '-created_at']
-        indexes = [
-            models.Index(fields=['player', 'game']),
-            models.Index(fields=['score']),
-            models.Index(fields=['created_at']),
-        ]
+    def leaderboard(self, game=None, period='all_time'):
+        """Generate leaderboard queryset"""
+        queryset = self.with_statistics()
+        
+        if game:
+            queryset = queryset.filter(scores__game=game)
+        
+        if period == 'today':
+            queryset = queryset.filter(scores__created_at__date=timezone.now().date())
+        elif period == 'week':
+            queryset = queryset.filter(scores__created_at__gte=timezone.now() - timedelta(days=7))
+        elif period == 'month':
+            queryset = queryset.filter(scores__created_at__gte=timezone.now() - timedelta(days=30))
+        
+        return queryset.order_by('-total_score', '-average_score')
 
-class PlayerAchievement(TimestampedModel):
-    """Track player achievements"""
-    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name='achievements')
-    achievement = models.ForeignKey(Achievement, on_delete=models.CASCADE)
-    progress = models.IntegerField(default=0)
-    is_completed = models.BooleanField(default=False)
-    completed_at = models.DateTimeField(null=True, blank=True)
+class GameQuerySet(ActiveQuerySet):
+    """Custom QuerySet for Game model"""
     
-    def __str__(self):
-        return f"{self.player.name} - {self.achievement.name}"
+    def featured(self):
+        """Get featured games"""
+        return self.filter(is_featured=True, is_active=True)
     
-    def check_completion(self):
-        """Check if achievement is completed"""
-        if self.progress >= self.achievement.required_value and not self.is_completed:
-            self.is_completed = True
-            self.completed_at = timezone.now()
-            
-            # Award points to player
-            self.player.total_score += self.achievement.points_reward
-            self.player.save()
-            
-            self.save()
-            return True
-        return False
+    def by_category(self, category):
+        """Filter games by category"""
+        if isinstance(category, str):
+            return self.filter(category__name__iexact=category, is_active=True)
+        return self.filter(category=category, is_active=True)
     
-    class Meta:
-        unique_together = ['player', 'achievement']
-
-class GameSession(TimestampedModel):
-    """Track individual game sessions"""
-    SESSION_STATUS = [
-        ('active', 'Active'),
-        ('completed', 'Completed'),
-        ('abandoned', 'Abandoned'),
-        ('paused', 'Paused'),
-    ]
+    def by_difficulty(self, min_level=1, max_level=5):
+        """Filter games by difficulty level"""
+        return self.filter(
+            difficulty_level__gte=min_level,
+            difficulty_level__lte=max_level,
+            is_active=True
+        )
     
-    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name='sessions')
-    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='sessions')
+    def easy_games(self):
+        """Get easy games (difficulty 1-2)"""
+        return self.by_difficulty(1, 2)
     
-    # Session Details
-    session_id = models.UUIDField(default=uuid.uuid4, unique=True)
-    status = models.CharField(max_length=20, choices=SESSION_STATUS, default='active')
+    def medium_games(self):
+        """Get medium games (difficulty 3)"""
+        return self.by_difficulty(3, 3)
     
-    # Time Tracking
-    started_at = models.DateTimeField(auto_now_add=True)
-    ended_at = models.DateTimeField(null=True, blank=True)
-    last_activity = models.DateTimeField(auto_now=True)
+    def hard_games(self):
+        """Get hard games (difficulty 4-5)"""
+        return self.by_difficulty(4, 5)
     
-    # Session Data
-    current_data = models.JSONField(default=dict)
-    moves_count = models.IntegerField(default=0)
-    current_score = models.IntegerField(default=0)
+    def popular(self, min_plays=10):
+        """Get popular games based on play count"""
+        return self.filter(play_count__gte=min_plays, is_active=True).order_by('-play_count')
     
-    # Settings
-    difficulty = models.IntegerField(default=3)
-    settings = models.JSONField(default=dict)
+    def highly_rated(self, min_rating=75):
+        """Get highly rated games"""
+        return self.filter(average_score__gte=min_rating, is_active=True).order_by('-average_score')
     
-    def __str__(self):
-        return f"{self.player.name} - {self.game.display_name} ({self.status})"
+    def new_releases(self, days=30):
+        """Get recently released games"""
+        cutoff_date = timezone.now().date() - timedelta(days=days)
+        return self.filter(release_date__gte=cutoff_date, is_active=True)
     
-    @property
-    def duration(self):
-        """Calculate session duration"""
-        if self.ended_at:
-            return self.ended_at - self.started_at
-        return timezone.now() - self.started_at
+    def with_statistics(self):
+        """Annotate games with comprehensive statistics"""
+        return self.annotate(
+            total_players=Count('scores__player', distinct=True),
+            total_plays=Count('scores'),
+            recent_plays=Count('scores', filter=Q(scores__created_at__gte=timezone.now() - timedelta(days=7))),
+            avg_score=Avg('scores__score'),
+            highest_score=Max('scores__score'),
+            avg_duration=Avg('scores__duration'),
+            completion_rate=Avg(
+                Case(
+                    When(scores__is_completed=True, then=Value(100)),
+                    default=Value(0),
+                    output_field=models.FloatField()
+                )
+            ),
+            popularity_score=F('total_plays') * 0.7 + F('avg_score') * 0.3
+        )
     
-    def end_session(self, final_score=None):
-        """End the game session"""
-        self.status = 'completed'
-        self.ended_at = timezone.now()
-        if final_score is not None:
-            self.current_score = final_score
-        self.save()
+    def trending(self, days=7):
+        """Get trending games based on recent activity"""
+        return self.with_statistics().filter(
+            recent_plays__gt=0
+        ).order_by('-recent_plays', '-total_players')
     
-    class Meta:
-        ordering = ['-started_at']
-
-class Leaderboard(TimestampedModel):
-    """Dynamic leaderboard entries"""
-    LEADERBOARD_TYPES = [
-        ('daily', 'Daily'),
-        ('weekly', 'Weekly'),
-        ('monthly', 'Monthly'),
-        ('all_time', 'All Time'),
-    ]
-    
-    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='leaderboards')
-    period_type = models.CharField(max_length=20, choices=LEADERBOARD_TYPES)
-    period_start = models.DateTimeField()
-    period_end = models.DateTimeField()
-    
-    # Leaderboard data (JSON field with rankings)
-    rankings = models.JSONField(default=list)
-    
-    def __str__(self):
-        return f"{self.game.display_name} - {self.period_type} ({self.period_start.date()})"
-    
-    def update_rankings(self):
-        """Update leaderboard rankings for the period"""
-        scores = GameScore.objects.filter(
-            game=self.game,
-            created_at__gte=self.period_start,
-            created_at__lte=self.period_end,
-            is_completed=True
-        ).select_related('player').order_by('-score')
+    def search(self, query):
+        """Search games by name or description"""
+        if not query:
+            return self.none()
         
-        rankings = []
-        for rank, score in enumerate(scores[:100], 1):  # Top 100
-            rankings.append({
-                'rank': rank,
-                'player_id': score.player.id,
-                'player_name': score.player.name,
-                'score': score.score,
-                'created_at': score.created_at.isoformat(),
-            })
-        
-        self.rankings = rankings
-        self.save()
+        return self.filter(
+            models.Q(display_name__icontains=query) |
+            models.Q(description__icontains=query) |
+            models.Q(category__name__icontains=query)
+        ).distinct()
+
+class GameScoreQuerySet(TimestampedQuerySet):
+    """Custom QuerySet for GameScore model"""
     
-    class Meta:
-        unique_together = ['game', 'period_type', 'period_start']
-        ordering = ['-period_start']
+    def completed_only(self):
+        """Filter completed games only"""
+        return self.filter(is_completed=True)
+    
+    def personal_bests(self):
+        """Filter personal best scores only"""
+        return self.filter(is_personal_best=True)
+    
+    def by_player(self, player):
+        """Filter scores by player"""
+        return self.filter(player=player)
+    
+    def by_game(self, game):
+        """Filter scores by game"""
+        return self.filter(game=game)
+    
+    def high_scores(self, threshold=80):
+        """Filter high scores above threshold percentage"""
+        return self.filter(
+            score__gte=models.F('max_possible_score') * threshold / 100
+        )
+    
+    def low_scores(self, threshold=40):
+        """Filter low scores below threshold percentage"""
+        return self.filter(
+            score__lt=models.F('max_possible_score') * threshold / 100
+        )
+    
+    def perfect_scores(self):
+        """Filter perfect scores"""
+        return self.filter(score=models.F('max_possible_score'))
+    
+    def quick_games(self, max_duration_minutes=5):
+        """Filter games completed quickly"""
+        return self.filter(
+            duration__lte=timedelta(minutes=max_duration_minutes)
+        )
+    
+    def long_games(self, min_duration_minutes=15):
+        """Filter games that took long to complete"""
+        return self.filter(
+            duration__gte=timedelta(minutes=min_duration_minutes)
+        )
+    
+    def with_performance_rating(self):
+        """Annotate scores with performance ratings"""
+        return self.annotate(
+            score_percentage=Case(
+                When(max_possible_score__gt=0, 
+                     then=Cast(F('score'), models.FloatField()) / Cast(F('max_possible_score'), models.FloatField()) * 100),
+                default=Value(0),
+                output_field=models.FloatField()
+            ),
+            performance_rating=Case(
+                When(score_percentage__gte=90, then=Value('Excellent')),
+                When(score_percentage__gte=75, then=Value('Good')),
+                When(score_percentage__gte=60, then=Value('Average')),
+                When(score_percentage__gte=40, then=Value('Below Average')),
+                default=Value('Poor'),
+                output_field=models.CharField()
+            ),
+            difficulty_bonus=F('difficulty_played') * 10,
+            final_rating=F('score_percentage') + F('difficulty_bonus')
+        )
+    
+    def leaderboard(self, game=None, period='all_time', limit=100):
+        """Generate leaderboard queryset"""
+        queryset = self.completed_only().select_related('player', 'game')
+        
+        if game:
+            queryset = queryset.filter(game=game)
+        
+        if period == 'today':
+            queryset = queryset.created_today()
+        elif period == 'week':
+            queryset = queryset.created_this_week()
+        elif period == 'month':
+            queryset = queryset.created_this_month()
+        
+        return queryset.order_by('-score', '-created_at')[:limit]
+    
+    def statistics_for_period(self, start_date=None, end_date=None):
+        """Get statistical summary for a period"""
+        queryset = self.completed_only()
+        
+        if start_date and end_date:
+            queryset = queryset.created_between(start_date, end_date)
+        
+        return queryset.aggregate(
+            total_games=Count('id'),
+            total_players=Count('player', distinct=True),
+            avg_score=Avg('score'),
+            highest_score=Max('score'),
+            total_score=Sum('score'),
+            avg_duration=Avg('duration'),
+            perfect_games=Count('id', filter=Q(score=F('max_possible_score'))),
+            completion_rate=Avg(
+                Case(
+                    When(is_completed=True, then=Value(100)),
+                    default=Value(0),
+                    output_field=models.FloatField()
+                )
+            )
+        )
