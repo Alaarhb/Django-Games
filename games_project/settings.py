@@ -1,39 +1,53 @@
 import os
 from pathlib import Path
+from datetime import timedelta
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-your-secret-key-here'
-DEBUG = True
-ALLOWED_HOSTS = []
+# Security Settings for Forms
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 
-# Media files configuration
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+# CSRF Settings
+CSRF_COOKIE_SECURE = False  # Set to True in production with HTTPS
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SAMESITE = 'Strict'
+CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1:8000', 'http://localhost:8000']
 
-# Static files configuration
-STATIC_URL = '/static/'
-STATICFILES_DIRS = [
-    BASE_DIR / 'static',
+# Session Security
+SESSION_COOKIE_SECURE = False  # Set to True in production
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Strict'
+SESSION_COOKIE_AGE = 3600  # 1 hour
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+
+# Password Validation
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 8,}
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
 ]
-STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# File upload settings
+# Rate Limiting
+RATELIMIT_USE_CACHE = 'default'
+RATELIMIT_ENABLE = True
+
+# File Upload Security
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB
-
-# Image processing settings
-THUMBNAIL_SIZES = {
-    'small': (100, 100),
-    'medium': (300, 300),
-    'large': (600, 600),
-}
-
-# Static files configuration
-STATIC_URL = '/static/'
-STATICFILES_DIRS = [
-    BASE_DIR / 'static',
-]
+FILE_UPLOAD_PERMISSIONS = 0o644
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -43,43 +57,44 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'games',
+    'captcha',  # django-simple-captcha for security
+    'crispy_forms',  # For better form styling
+    'crispy_bootstrap5',
 ]
 
-MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
-]
+# Crispy Forms Configuration
+CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
+CRISPY_TEMPLATE_PACK = "bootstrap5"
 
-ROOT_URLCONF = 'games_project.urls'
+# Email Configuration for Password Reset
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # For development
 
-TEMPLATES = [
-    {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
-            ],
+# Logging Configuration
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'file': {
+            'level': 'WARNING',
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs/django.log',
+        },
+        'security_file': {
+            'level': 'WARNING',
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs/security.log',
         },
     },
-]
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'loggers': {
+        'django.security': {
+            'handlers': ['security_file'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+        'games.security': {
+            'handlers': ['security_file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
 }
-
-STATIC_ROOT = BASE_DIR / 'staticfiles'
-
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
